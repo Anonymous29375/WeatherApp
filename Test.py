@@ -1,12 +1,12 @@
 import PySimpleGUI as sg  
 import requests 
-from datetime import datetime, timedelta  
+from datetime import datetime, timedelta, timezone
 import pytz 
 import os
 
 sg.theme('DarkGreen6')
 
-# Constants
+# API Information
 API_KEY = "db5620faef0a378e1f0a1ac502088363"
 GEO_BASE_URL = "https://api.openweathermap.org/geo/1.0/direct" 
 WEATHER_BASE_URL = "https://api.openweathermap.org/data/3.0/onecall" 
@@ -16,9 +16,20 @@ def celsius_to_fahrenheit(celsius):
     return (celsius * 9/5) + 32
 
 # Converts a time to local time
-def unix_to_local_time(unix_time, offset_seconds):
+def unix_to_local_time_offset(unix_time, offset_seconds):
     utc_time = datetime.fromtimestamp(unix_time)
-    return utc_time 
+    local_time = utc_time + timedelta(seconds=offset_seconds)
+    return local_time
+        
+def unix_to_local_time_zone(unix_time, timezone_str):
+    # Create a timezone-aware UTC datetime from the UNIX timestamp
+    utc_time = datetime.fromtimestamp(unix_time, tz=timezone.utc)
+
+    # Convert to the target timezone using pytz
+    local_tz = pytz.timezone(timezone_str)
+    local_time = utc_time.astimezone(local_tz)
+
+    return local_time
 
 # Get the latitude and longitude of a city
 def get_city_coordinates(city):
@@ -59,12 +70,17 @@ def fetch_7_day_forecast(lat, lon):
     if "daily" not in data:
         return None, data.get("message", "Unable to fetch forecast")
 
-    timezone_offset = data.get("timezone_offset", 0)
     forecast_list = []
 
     for weather_day in data["daily"][:7]:
         # Format the date and convert the temps
-        date = unix_to_local_time(weather_day["dt"], timezone_offset).strftime('%Y-%m-%d')
+        city_timestamp = weather_day["dt"]
+        city_utc = datetime.fromtimestamp(city_timestamp, tz=timezone.utc)
+        city_timezone_name = data.get("timezone", 0)
+        city_timezone = pytz.timezone(city_timezone_name)
+        
+        city_local = city_utc.astimezone(city_timezone)
+        date = city_local.strftime('%Y-%m-%d')
         temp_min_celsius = weather_day["temp"]["min"]
         temp_max_celsius = weather_day["temp"]["max"]
         temp_min_fahrenheit = celsius_to_fahrenheit(temp_min_celsius)
@@ -78,14 +94,19 @@ def fetch_7_day_forecast(lat, lon):
         sunrise_unix = weather_day["sunrise"]
         sunset_unix = weather_day["sunset"]
 
-        # Converts the sunrise and sunset to the cities local time
-        sunrise_local = unix_to_local_time(sunrise_unix, timezone_offset)
-        sunset_local = unix_to_local_time(sunset_unix, timezone_offset)
+        # Convert sunrise and sunset to UTC
+        sunrise_utc = datetime.fromtimestamp(sunrise_unix, tz=timezone.utc)
+        sunset_utc = datetime.fromtimestamp(sunset_unix, tz=timezone.utc)
 
-        # Converts the sunrise and sunset to Canberra time 
-        canberra = pytz.timezone("Australia/Sydney")
-        sunrise_canberra = datetime.fromtimestamp(sunrise_unix).replace(tzinfo=pytz.utc)
-        sunset_canberra = datetime.fromtimestamp(sunset_unix).replace(tzinfo=pytz.utc)
+        # Convert to city local time
+        city_timezone = pytz.timezone(city_timezone_name)
+        sunrise_local = sunrise_utc.astimezone(city_timezone)
+        sunset_local = sunset_utc.astimezone(city_timezone)
+
+        # Converts the sunrise and sunset to Canberra time
+        canberra_timezone = "Australia/Sydney"
+        sunrise_canberra = unix_to_local_time_zone(sunrise_unix, canberra_timezone)
+        sunset_canberra = unix_to_local_time_zone(sunset_unix, canberra_timezone)
 
         # Adds weather details to the forecast list
         forecast_list.append({
@@ -149,7 +170,7 @@ def show_forecast_window(city, forecast_data):
                 f"💧 Humidity: {data['humidity']}%\n"
                 f"🌧 Rain: {data['rain']} mm\n"
                 f"💨 Wind: {data['wind']} m/s\n"
-                f"☀️ Sunrise (Local): {data['sunrise_local']} | Sunset (Local): {data['sunset_local']}\n"
+                f"🌅 Sunrise ({city}): {data['sunrise_local']} | Sunset ({city}): {data['sunset_local']}\n"
                 f"🇦🇺 Sunrise (Canberra): {data['sunrise_canberra']} | Sunset (Canberra): {data['sunset_canberra']}\n"
             )
 
@@ -192,6 +213,3 @@ while True:
         show_forecast_window(city, forecast)
 
 window.close()
-
-
-
