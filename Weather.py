@@ -1,6 +1,6 @@
 import FreeSimpleGUI as sg
 import requests
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import pytz
 import os
 
@@ -11,23 +11,18 @@ API_KEY = "db5620faef0a378e1f0a1ac502088363"
 GEO_BASE_URL = "https://api.openweathermap.org/geo/1.0/direct"
 WEATHER_BASE_URL = "https://api.openweathermap.org/data/3.0/onecall"
 
+# Global setting for temperature unit
+use_celsius = True
 
 # Converts the temperature from Celsius to Fahrenheit
 def celsius_to_fahrenheit(celsius):
     return (celsius * 9 / 5) + 32
 
-
 # Converts a unix epoch to local time using time zone name (string)
 def unix_to_local_time_zone(unix_time, timezone_str):
-    # Create a timezone-aware UTC datetime from the UNIX timestamp
     utc_time = datetime.fromtimestamp(unix_time, tz=timezone.utc)
-
-    # Convert to the target timezone using pytz library
     local_tz = pytz.timezone(timezone_str)
-    local_time = utc_time.astimezone(local_tz)
-
-    return local_time
-
+    return utc_time.astimezone(local_tz)
 
 # Get the latitude and longitude of a city
 def get_city_coordinates(city):
@@ -52,10 +47,9 @@ def get_city_coordinates(city):
     lon = data[0]["lon"]
     return lat, lon, None, response.status_code
 
-
 # Get an icon using the icon label
 def get_weather_icon(description):
-    # CConvert to lower case for easier comparison
+    # Convert to lower case for easier comparison
     description = description.lower()
 
     # Matching label to icon name
@@ -69,7 +63,6 @@ def get_weather_icon(description):
         return "Icons/Sun.png"
     else:
         return "Icons/Cloudy.png"
-
 
 # Get the 7-day weather forecast
 def fetch_7_day_forecast(lat, lon, city):
@@ -96,10 +89,10 @@ def fetch_7_day_forecast(lat, lon, city):
 
         city_local = city_utc.astimezone(city_timezone)
         date = city_local.strftime("%Y-%m-%d")
-        temp_min_celsius = weather_day["temp"]["min"]
-        temp_max_celsius = weather_day["temp"]["max"]
-        temp_min_fahrenheit = celsius_to_fahrenheit(temp_min_celsius)
-        temp_max_fahrenheit = celsius_to_fahrenheit(temp_max_celsius)
+        temp_min_celsius = round(weather_day["temp"]["min"], 2)
+        temp_max_celsius = round(weather_day["temp"]["max"], 2)
+        temp_min_fahrenheit = round(celsius_to_fahrenheit(temp_min_celsius), 2)
+        temp_max_fahrenheit = round(celsius_to_fahrenheit(temp_max_celsius), 2)
 
         # Extract the weather data
         description = weather_day["weather"][0]["description"]
@@ -144,7 +137,6 @@ def fetch_7_day_forecast(lat, lon, city):
 
     return forecast_list, None, response.status_code
 
-
 def show_forecast_window(city, forecast_data):
     day_buttons = []
     for index, day in enumerate(forecast_data):
@@ -164,14 +156,12 @@ def show_forecast_window(city, forecast_data):
             sg.Column(
                 [[btn for btn in day_buttons]],
                 justification="center",
-                element_justification="center",
             )
         ],
         [
             sg.Column(
                 [[sg.Image(key="WEATHER_ICON")]],
                 justification="center",
-                element_justification="center",
             )
         ],
         [
@@ -182,11 +172,7 @@ def show_forecast_window(city, forecast_data):
             )
         ],
         [
-            sg.Column(
-                [[sg.Button("Close", size=(10, 1))]],
-                justification="center",
-                element_justification="center",
-            )
+            sg.Button("Close", size=(10, 1))
         ],
     ]
 
@@ -194,7 +180,6 @@ def show_forecast_window(city, forecast_data):
         f"Forecast - {city}",
         layout,
         modal=True,
-        element_justification="center",
         finalize=True,
     )
 
@@ -212,11 +197,18 @@ def show_forecast_window(city, forecast_data):
             if not os.path.exists(icon_path):
                 icon_path = "Icons/Cloudy.png"
 
+            if use_celsius:
+                min_temp = f"{data['temp_min_celsius']}°C"
+                max_temp = f"{data['temp_max_celsius']}°C"
+            else:
+                min_temp = f"{data['temp_min_fahrenheit']}°F"
+                max_temp = f"{data['temp_max_fahrenheit']}°F"
+
             forecast_text = (
                 f"📅 {data['date']} ({datetime.strptime(data['date'], '%Y-%m-%d').strftime('%A')})\n"
                 f"🌤 Description: {data['description'].capitalize()}\n"
-                f"🌡 Min Temp: {data['temp_min_celsius']}°C / {data['temp_min_fahrenheit']}°F\n"
-                f"🌡 Max Temp: {data['temp_max_celsius']}°C / {data['temp_max_fahrenheit']}°F\n"
+                f"🌡 Min Temp: {min_temp}\n"
+                f"🌡 Max Temp: {max_temp}\n"
                 f"💧 Humidity: {data['humidity']}%\n"
                 f"🌧 Rain: {data['rain']} mm\n"
                 f"💨 Wind: {data['wind']} m/s\n"
@@ -229,11 +221,28 @@ def show_forecast_window(city, forecast_data):
 
     window.close()
 
+def show_settings_window():
+    global use_celsius
+    layout = [
+        [sg.Text("Choose temperature unit:")],
+        [sg.Radio("Celsius", "UNIT", key="C", default=use_celsius)],
+        [sg.Radio("Fahrenheit", "UNIT", key="F", default=not use_celsius)],
+        [sg.Button("Save"), sg.Button("Cancel")]
+    ]
+    window = sg.Window("Settings", layout, modal=True)
+    while True:
+        event, values = window.read()
+        if event in (sg.WIN_CLOSED, "Cancel"):
+            break
+        if event == "Save":
+            use_celsius = values["C"]
+            break
+    window.close()
 
 layout = [
     [sg.Text("City:")],
     [sg.InputText(key="CITY")],
-    [sg.Button("Get Forecast"), sg.Exit()],
+    [sg.Button("Get Forecast"), sg.Button("Settings"), sg.Button("Exit")]
 ]
 
 window = sg.Window("Weather Forecast App", layout)
@@ -242,6 +251,9 @@ while True:
     event, values = window.read()
     if event in (sg.WIN_CLOSED, "Exit"):
         break
+
+    if event == "Settings":
+        show_settings_window()
 
     if event == "Get Forecast":
         city = values["CITY"].strip()
