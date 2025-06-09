@@ -36,7 +36,7 @@ def get_city_coordinates(city):
     data = response.json()
 
     if response.status_code == 200 and not data:
-        # The ccity name was not found
+        # The city name was not found
         return None, f"Is '{city}' a valid city?", response.status_code
 
     if response.status_code != 200 or not data:
@@ -86,7 +86,7 @@ def fetch_7_day_forecast(lat, lon, city):
 
     forecast_list = []
 
-    # Iterate eah daily data in 7 days
+    # Iterate each daily data in 7 days
     for weather_day in data["daily"][:7]:
         # Format the date and convert the temps
         city_timestamp = weather_day["dt"]
